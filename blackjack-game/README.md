@@ -1,40 +1,46 @@
-# Blackjack (Flask + Socket.IO)
+﻿# Blackjack Game (Flask + Socket.IO)
 
-**Features**
-- Rooms with 4-letter codes; create/join
+Multiplayer Blackjack web app with room codes and real-time gameplay over Socket.IO.
+
+## Features
+- Create/join game rooms with short codes
 - Up to 6 seated players per table
-- 6-deck shoe, dealer hits soft 17 (configurable)
-- Bets, insurance (when dealer shows Ace), double, single split, late surrender
-- Blackjack pays 3:2; pushes return bet
-- Dark UI styled like your Yahtzee app
+- Betting with min/max limits
+- Hit, stand, double, split, surrender, and insurance actions
+- Dealer flow with delayed reveal/draw animations
+- Round results and chip tracking per player
 
-## Run locally
-```bash
-python -m venv .venv && . .venv/bin/activate
+## Requirements
+- Python 3.10+
+
+## Run Locally (PowerShell)
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-python app.py  # open http://localhost:5000
+python app.py
 ```
 
-## Docker
+Open:
+- `http://localhost:5000`
+
+## Run with Docker
 ```bash
 docker build -t blackjack-game .
-docker run -d --name blackjack-game -p 5006:5000 blackjack-game
-# open http://<your-pc-ip>:5006
+docker run -d --name blackjack-game -p 5000:5000 blackjack-game
 ```
 
-## Notes
-- Minimum bet: 5, Maximum bet: 500 (change in `app.py`)
-- Starting chips per player: 1000 (change in `Player` dataclass)
-- Basic anti-spam is included.
-- Splits: single split only. Insurance cost: half the main bet, pays 2:1 if dealer has blackjack.
-- Surrender: late surrender, refunds 50% immediately for that hand.
-```
-"""
+Open:
+- `http://localhost:5000`
 
-# --- write files to the canvas virtual fs (display only) ---
-print("app.py\n"+app_py)
-print("\n\n# templates/index.html\n"+index_html)
-print("\n\n# static/style.css\n"+style_css)
-print("\n\n# requirements.txt\n"+requirements_txt)
-print("\n\n# Dockerfile\n"+Dockerfile_txt)
-print("\n\n# README.md\n"+readme_md)
+## Optional Environment Variables
+- `SECRET_KEY` (default: internal fallback)
+- `DEALER_REVEAL_DELAY` (default: `0.9` seconds)
+- `DEALER_DRAW_DELAY` (default: `0.9` seconds)
+
+## Project Files
+- `app.py` - Flask app and Socket.IO game logic
+- `templates/index.html` - UI template
+- `static/style.css` - App styling
+- `requirements.txt` - Python dependencies
+- `dockerfile` - Container build and startup

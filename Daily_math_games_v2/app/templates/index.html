@@ -1,0 +1,57 @@
+﻿{% extends "base.html" %}
+
+{% block title %}Daily Math Game{% endblock %}
+
+{% block content %}
+<section class="card hero-card">
+    <h1>Daily Math Game</h1>
+    <p class="muted">A local-first daily math challenge generated with OpenAI and saved on your device.</p>
+    <p class="date-pill">Today: {{ today }}</p>
+
+    {% if today_exists %}
+    <a class="btn btn-primary btn-block" href="/play">Play today</a>
+
+    {% if today_meta %}
+    <div class="meta-box">
+        <p class="small muted">Model: {{ today_meta.model or "unknown" }}</p>
+        <p class="small muted">Tokens in/out/total: {{ today_meta.input_tokens or 0 }} / {{ today_meta.output_tokens or 0 }} / {{ today_meta.total_tokens or 0 }}</p>
+        <p class="small muted">Generated at: {{ today_meta.created_at }}</p>
+    </div>
+    {% endif %}
+    {% else %}
+    <button id="generateTodayBtn" class="btn btn-primary btn-block" type="button">Generate today's game</button>
+    <p id="generateStatus" class="muted small"></p>
+    {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+{% if not today_exists %}
+<script>
+(() => {
+    const button = document.getElementById("generateTodayBtn");
+    const statusEl = document.getElementById("generateStatus");
+    if (!button) return;
+
+    button.addEventListener("click", async () => {
+        button.disabled = true;
+        button.textContent = "Generating...";
+        if (statusEl) statusEl.textContent = "Calling OpenAI API...";
+
+        try {
+            const res = await fetch("/generate", { method: "POST" });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.detail || "Generate failed");
+            }
+            window.location.href = "/play";
+        } catch (err) {
+            if (statusEl) statusEl.textContent = String(err.message || err);
+            button.disabled = false;
+            button.textContent = "Generate today's game";
+        }
+    });
+})();
+</script>
+{% endif %}
+{% endblock %}

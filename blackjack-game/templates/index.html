@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Blackjack</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <h1>Blackjack</h1>
+      <div class="room-box">
+        <input id="name" class="input" placeholder="Your name" maxlength="20" />
+        <button id="btnCreate" class="btn">Create Room</button>
+        <input id="roomCode" class="input code" placeholder="CODE" maxlength="6" />
+        <button id="btnJoin" class="btn">Join</button>
+        <span id="roomLabel" class="muted"></span>
+      </div>
+    </header>
+
+    <main>
+      <section class="table">
+        <div class="dealer">
+          <h2>Dealer</h2>
+          <div id="dealerCards" class="cards"></div>
+        </div>
+
+        <div id="players" class="players"></div>
+      </section>
+
+      <section class="controls">
+        <div class="bet-controls">
+          <input id="bet" type="number" class="input" min="5" value="25" />
+          <button id="btnBet" class="btn">Place Bet</button>
+          <button id="btnStart" class="btn">Start Round</button>
+          <button id="btnSeat" class="btn">Take Seat</button>
+          <button id="btnStandUp" class="btn alt">Stand Up</button>
+        </div>
+        <div class="play-controls">
+          <button id="aHit" class="btn big">Hit</button>
+          <button id="aStand" class="btn big">Stand</button>
+          <button id="aDouble" class="btn">Double</button>
+          <button id="aSplit" class="btn">Split</button>
+          <button id="aSurrender" class="btn alt">Surrender</button>
+          <button id="aInsure" class="btn">Insurance</button>
+        </div>
+        <div id="message" class="muted"></div>
+      </section>
+    </main>
+  </div>
+
+<script>
+const socket = io();
+let STATE = null;
+let MY_SID = null; // inferred from state.me
+
+function q(id){ return document.getElementById(id); }
+
+function render(state){
+  STATE = state;
+  const code = state.code || "";
+  q("roomLabel").textContent = code ? `Room: ${code}` : "";
+
+  // limits
+  if (state.min_bet) q("bet").min = state.min_bet;
+  if (state.max_bet) q("bet").max = state.max_bet;
+
+  // render dealer
+  const d = q("dealerCards");
+  d.innerHTML = "";
+  (state.dealer||[]).forEach(cs=>{
+    d.appendChild(cardEl(cs));
+  });
+  if (state.dealer && state.dealer.length>1 && state.dealer_total!=null){
+    const badge = document.createElement('div');
+    badge.className='total';
+    badge.textContent = `Total: ${state.dealer_total}`;
+    d.appendChild(badge);
+  }
+
+  // render players grid
+  const root = q("players");
+  root.innerHTML = "";
+  (state.players||[]).forEach(p=>{
+    if (p.me) MY_SID = p.sid;
+    const handsHtml = (p.hands||[]).map((h,i)=>handHtml(h, p.sid===state.turn_sid && i===state.hand_i, p.hand_values?.[i])).join("");
+    const resultsHtml = (p.last_results||[]).map(r=> r?`<span class="result">${escapeHtml(r)}</span>`:"").join(" ");
+    const box = document.createElement("div");
+    box.className = "player" + (p.sid===state.turn_sid?" turn":"");
+    box.innerHTML = `
+      <div class="head">
+        <div class="name">${escapeHtml(p.name)}</div>
+        <div class="chips">${p.chips} chips</div>
+      </div>
+      <div class="bets">${(p.bets||[]).map(b=>`<span class="chip">${b}</span>`).join("")}</div>
+      <div class="hands">${handsHtml}</div>
+      <div class="seat">${p.seated?"Seated":"Standing"}</div>
+      <div class="last">${resultsHtml}</div>
+    `;
+    root.appendChild(box);
+  });
+
+  // show/hide action buttons
+  const myTurn = state.turn_sid && STATE.players.find(x=>x.sid===state.turn_sid && x.sid===MY_SID);
+  const phase = state.phase;
+  const showPlay = phase==="acting" && myTurn;
+  q("aHit").style.display = showPlay?"inline-block":"none";
+  q("aStand").style.display = showPlay?"inline-block":"none";
+  q("aDouble").style.display = showPlay?"inline-block":"none";
+  q("aSplit").style.display = showPlay?"inline-block":"none";
+  q("aSurrender").style.display = showPlay?"inline-block":"none";
+
+  const showInsurance = phase==="insurance" && myTurn;
+  q("aInsure").style.display = showInsurance?"inline-block":"none";
+
+  // message
+  q("message").textContent = {
+    lobby: "Create or join a room, take a seat, place a bet to begin.",
+    betting: "Place bets. Host can start the round.",
+    dealing: "Dealing...",
+    insurance: "Dealer shows Ace: optionally buy insurance.",
+    acting: "Player turns in order.",
+    dealer: "Dealer playing...",
+    payouts: "Paying out...",
+  }[phase] || "";
+}
+
+function handHtml(cards, active, val){
+  const totalStr = val? `Total: ${val.total}${val.soft?" (soft)":""}`:"";
+  return `<div class="cards ${active?"active":""}">` + cards.map(c=>cardHtml(c)).join("") + (totalStr?`<div class="total">${totalStr}</div>`:``) + `</div>`
+}
+function cardHtml(cs){
+  return `<div class="card">${escapeHtml(cs)}</div>`
+}
+function cardEl(cs){
+  const el = document.createElement("div");
+  el.className = "card";
+  el.textContent = cs;
+  return el;
+}
+function escapeHtml(s){
+  return (s+"").replace(/[&<>\"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+}
+
+// UI wiring
+q("btnCreate").onclick = ()=>{
+  const name = q("name").value || "Player";
+  socket.emit("create_room", {name});
+}
+q("btnJoin").onclick = ()=>{
+  const name = q("name").value || "Player";
+  const code = (q("roomCode").value||"").trim().toUpperCase();
+  socket.emit("join_room", {code, name});
+}
+q("btnSeat").onclick = ()=>{
+  socket.emit("take_seat", {code: STATE?.code});
+}
+q("btnStandUp").onclick = ()=>{
+  socket.emit("stand_up", {code: STATE?.code});
+}
+q("btnBet").onclick = ()=>{
+  const amount = parseInt(q("bet").value||0,10);
+  socket.emit("place_bet", {code: STATE?.code, amount});
+}
+q("btnStart").onclick = ()=>{
+  socket.emit("start_round", {code: STATE?.code});
+}
+
+q("aHit").onclick = ()=> socket.emit("action", {code: STATE?.code, act: "hit"});
+q("aStand").onclick = ()=> socket.emit("action", {code: STATE?.code, act: "stand"});
+q("aDouble").onclick = ()=> socket.emit("action", {code: STATE?.code, act: "double"});
+q("aSplit").onclick = ()=> socket.emit("action", {code: STATE?.code, act: "split"});
+q("aSurrender").onclick = ()=> socket.emit("action", {code: STATE?.code, act: "surrender"});
+q("aInsure").onclick = ()=> socket.emit("buy_insurance", {code: STATE?.code, buy: true});
+
+socket.on("state", render);
+socket.on("error", (e)=>{ alert(e?.message || "Error"); });
+</script>
+</body>
+</html>

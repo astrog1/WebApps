@@ -1,0 +1,97 @@
+﻿{% extends "base.html" %}
+
+{% block title %}Play Daily Math Game{% endblock %}
+
+{% block content %}
+<section id="loadingState" class="card">
+    <p>Loading today's game...</p>
+</section>
+
+<section id="noDataState" class="card" hidden>
+    <h1>No game generated yet</h1>
+    <p class="muted">Generate today's set first, then start playing.</p>
+    <button id="generateFromPlayBtn" class="btn btn-primary btn-block" type="button">Generate</button>
+    <p id="generateFromPlayStatus" class="muted small"></p>
+</section>
+
+<section id="gameState" hidden>
+    <header class="card compact">
+        <h1 class="m0">Today's Math Game</h1>
+    </header>
+
+    <nav class="tabs" aria-label="Level selector">
+        <button type="button" class="tab-btn active" data-level="level1">Level 1</button>
+        <button type="button" class="tab-btn" data-level="level2">Level 2</button>
+        <button type="button" class="tab-btn" data-level="level3">Level 3</button>
+    </nav>
+
+    <section id="level1Panel" class="panel">
+        <div id="lvl1StartCard" class="card">
+            <h2>Level 1: 60-second sprint</h2>
+            <p class="muted">Answer as many as you can before the timer ends.</p>
+            <button id="level1StartBtn" class="btn btn-primary btn-block" type="button">Start</button>
+        </div>
+
+        <div id="lvl1GameCard" class="card" hidden>
+            <div class="stat-row">
+                <div class="stat-box">
+                    <span class="stat-label">Time</span>
+                    <strong id="level1Time">60s</strong>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Score</span>
+                    <strong id="level1Score">0</strong>
+                </div>
+            </div>
+
+            <p id="level1Question" class="question-text"></p>
+            <p id="level1Feedback" class="feedback" aria-live="polite"></p>
+
+            <div class="action-bar">
+                <input
+                    id="level1Answer"
+                    class="answer-input"
+                    type="text"
+                    inputmode="numeric"
+                    autocomplete="off"
+                    enterkeyhint="done"
+                    placeholder="Type your answer"
+                >
+                <button id="level1SubmitBtn" class="btn btn-primary btn-block" type="button">Submit</button>
+            </div>
+        </div>
+
+        <div id="lvl1EndCard" class="card" hidden>
+            <h2>Time's up</h2>
+            <p>Your final score: <strong id="level1FinalScore">0</strong></p>
+            <button id="level1PlayAgainBtn" class="btn btn-primary btn-block" type="button">Play again</button>
+        </div>
+    </section>
+
+    <section id="level2Panel" class="panel" hidden>
+        <div class="card">
+            <h2>Level 2</h2>
+            <p class="muted">Answer each question, submit, and get instant correctness feedback.</p>
+            <div id="level2List" class="qa-list"></div>
+        </div>
+    </section>
+
+    <section id="level3Panel" class="panel" hidden>
+        <div class="card">
+            <h2>Level 3</h2>
+            <p class="muted">Solve each equation and check your answer immediately.</p>
+            <div id="level3List" class="qa-list"></div>
+        </div>
+    </section>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.APP_CONFIG = {
+    todayUrl: "/daily/today",
+    generateUrl: "/generate"
+};
+</script>
+<script src="{{ url_for('static', path='play.js') }}" defer></script>
+{% endblock %}

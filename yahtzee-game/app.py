@@ -4,13 +4,14 @@
 from __future__ import annotations
 from flask import Flask, render_template_string, request
 from flask_socketio import SocketIO, emit, join_room
+import os
 import random, time
 from collections import defaultdict
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'yahtzee-secret-not-for-prod'
 socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins='*')
-PORT = 5000
+PORT = int(os.environ.get("PORT", "5000"))
 
 CATEGORIES = [
     'ones','twos','threes','fours','fives','sixes',

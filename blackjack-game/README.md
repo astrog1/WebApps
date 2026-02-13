@@ -37,6 +37,18 @@ Open:
 - `SECRET_KEY` (default: internal fallback)
 - `DEALER_REVEAL_DELAY` (default: `0.9` seconds)
 - `DEALER_DRAW_DELAY` (default: `0.9` seconds)
+- `PORT` (default: `5000`)
+
+Example (Linux/macOS):
+```bash
+PORT=5101 python app.py
+```
+
+Example (PowerShell):
+```powershell
+$env:PORT = "5101"
+python app.py
+```
 
 ## Project Files
 - `app.py` - Flask app and Socket.IO game logic

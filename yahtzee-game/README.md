@@ -36,3 +36,17 @@ Open:
 - `app.py` - Flask app, Socket.IO events, and embedded HTML/CSS/JS UI
 - `requirements.txt` - Python dependencies
 - `Dockerfile` - Container build and startup
+
+## Optional Environment Variables
+- `PORT` (default: `5000`)
+
+Example (Linux/macOS):
+```bash
+PORT=5102 python app.py
+```
+
+Example (PowerShell):
+```powershell
+$env:PORT = "5102"
+python app.py
+```

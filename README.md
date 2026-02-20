@@ -18,7 +18,71 @@ Quick launcher (Linux):
 bash ./star_local.sh start
 ```
 
-## Run Locally
+## Windows 11 Local Install (Fresh Setup)
+
+### 1) Install prerequisites (one-time)
+- Install Git for Windows.
+- Install Python 3.10+ and enable "Add python.exe to PATH" during install.
+- Open PowerShell and verify:
+
+```powershell
+git --version
+python --version
+pip --version
+```
+
+### 2) Clone the repo (or open existing folder)
+
+```powershell
+cd $HOME\Desktop
+git clone <your-repo-url> hosting_apps
+cd hosting_apps
+```
+
+If the folder already exists, just `cd` into it.
+
+### 3) Allow local venv activation scripts (one-time)
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+### 4) Create environments and install dependencies (one-time)
+
+#### Blackjack
+```powershell
+cd blackjack-game
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+deactivate
+cd ..
+```
+
+#### Yahtzee
+```powershell
+cd yahtzee-game
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+deactivate
+cd ..
+```
+
+#### Daily Math Games
+```powershell
+cd Daily_math_games_v2
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+deactivate
+cd ..
+```
+
+## Run Locally on Windows 11
 
 ### Prerequisites
 - Python 3.10+ installed

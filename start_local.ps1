@@ -55,6 +55,24 @@ $MATH_PORT = Get-EnvOrDefault -Name "MATH_PORT" -DefaultValue "5103"
 $HUB_PORT = Get-EnvOrDefault -Name "HUB_PORT" -DefaultValue "8080"
 $HOST_BIND = Get-EnvOrDefault -Name "HOST_BIND" -DefaultValue "0.0.0.0"
 
+function Get-OpenAiApiKey {
+    if (-not [string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY)) {
+        return $env:OPENAI_API_KEY
+    }
+
+    $userKey = [Environment]::GetEnvironmentVariable("OPENAI_API_KEY", "User")
+    if (-not [string]::IsNullOrWhiteSpace($userKey)) {
+        return $userKey
+    }
+
+    $machineKey = [Environment]::GetEnvironmentVariable("OPENAI_API_KEY", "Machine")
+    if (-not [string]::IsNullOrWhiteSpace($machineKey)) {
+        return $machineKey
+    }
+
+    return $null
+}
+
 function Require-File {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -285,7 +303,8 @@ function Start-All {
     Require-File -Path $mathPython -Hint "Create Daily_math_games_v2\.venv and install requirements."
     Require-File -Path $homePageIndex -Hint "Expected file at home-page\index.html."
 
-    if ([string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY)) {
+    $openAiApiKey = Get-OpenAiApiKey
+    if ([string]::IsNullOrWhiteSpace($openAiApiKey)) {
         Write-Host "[daily-math] OPENAI_API_KEY is not set. /generate will fail until you set it."
     }
 
@@ -297,8 +316,8 @@ function Start-All {
         -Environment @{ PORT = $YAHTZEE_PORT }
 
     $dailyMathEnv = @{}
-    if (-not [string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY)) {
-        $dailyMathEnv["OPENAI_API_KEY"] = $env:OPENAI_API_KEY
+    if (-not [string]::IsNullOrWhiteSpace($openAiApiKey)) {
+        $dailyMathEnv["OPENAI_API_KEY"] = $openAiApiKey
     }
 
     Start-One `

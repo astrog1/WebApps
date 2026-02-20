@@ -13,7 +13,6 @@ function Show-Usage {
     Write-Host "  .\start_local.ps1 restart  # Restart all local services"
     Write-Host ""
     Write-Host "Optional environment variables:"
-    Write-Host "  BLACKJACK_PORT (default: 5101)"
     Write-Host "  YAHTZEE_PORT   (default: 5102)"
     Write-Host "  MATH_PORT      (default: 5103)"
     Write-Host "  HUB_PORT       (default: 8080)"
@@ -51,7 +50,6 @@ function Get-EnvOrDefault {
     return $item.Value
 }
 
-$BLACKJACK_PORT = Get-EnvOrDefault -Name "BLACKJACK_PORT" -DefaultValue "5101"
 $YAHTZEE_PORT = Get-EnvOrDefault -Name "YAHTZEE_PORT" -DefaultValue "5102"
 $MATH_PORT = Get-EnvOrDefault -Name "MATH_PORT" -DefaultValue "5103"
 $HUB_PORT = Get-EnvOrDefault -Name "HUB_PORT" -DefaultValue "8080"
@@ -271,7 +269,6 @@ function Print-Urls {
     Write-Host ""
     Write-Host "Open locally:"
     Write-Host "  Hub:       http://localhost:$HUB_PORT"
-    Write-Host "  Blackjack: http://localhost:$BLACKJACK_PORT"
     Write-Host "  Yahtzee:   http://localhost:$YAHTZEE_PORT"
     Write-Host "  DailyMath: http://localhost:$MATH_PORT"
     Write-Host ""
@@ -280,12 +277,10 @@ function Print-Urls {
 }
 
 function Start-All {
-    $blackjackPython = Join-Path $RootDir "blackjack-game\.venv\Scripts\python.exe"
     $yahtzeePython = Join-Path $RootDir "yahtzee-game\.venv\Scripts\python.exe"
     $mathPython = Join-Path $RootDir "Daily_math_games_v2\.venv\Scripts\python.exe"
     $homePageIndex = Join-Path $RootDir "home-page\index.html"
 
-    Require-File -Path $blackjackPython -Hint "Create blackjack-game\.venv and install requirements."
     Require-File -Path $yahtzeePython -Hint "Create yahtzee-game\.venv and install requirements."
     Require-File -Path $mathPython -Hint "Create Daily_math_games_v2\.venv and install requirements."
     Require-File -Path $homePageIndex -Hint "Expected file at home-page\index.html."
@@ -293,13 +288,6 @@ function Start-All {
     if ([string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY)) {
         Write-Host "[daily-math] OPENAI_API_KEY is not set. /generate will fail until you set it."
     }
-
-    Start-One `
-        -Name "blackjack" `
-        -WorkingDirectory (Join-Path $RootDir "blackjack-game") `
-        -FilePath $blackjackPython `
-        -Arguments @("app.py") `
-        -Environment @{ PORT = $BLACKJACK_PORT }
 
     Start-One `
         -Name "yahtzee" `
@@ -336,11 +324,9 @@ function Stop-All {
     Stop-One -Name "home-page"
     Stop-One -Name "daily-math"
     Stop-One -Name "yahtzee"
-    Stop-One -Name "blackjack"
 }
 
 function Status-All {
-    Status-One -Name "blackjack"
     Status-One -Name "yahtzee"
     Status-One -Name "daily-math"
     Status-One -Name "home-page"

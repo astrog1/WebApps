@@ -59,10 +59,27 @@ def generate_today() -> dict:
             "status": "existing",
             "payload": existing,
             "meta": db.get_daily_meta(today),
+            "debug": {"reason": "already_generated_for_today"},
         }
 
     try:
-        result = openai_client.generate_daily_payload(today)
+        previous = db.get_latest_daily_set_before(today)
+        previous_payload = (
+            previous["payload"]
+            if isinstance(previous, dict) and isinstance(previous.get("payload"), dict)
+            else None
+        )
+        previous_date = (
+            previous["date"]
+            if isinstance(previous, dict) and isinstance(previous.get("date"), str)
+            else None
+        )
+
+        result = openai_client.generate_daily_payload(
+            today,
+            previous_payload=previous_payload,
+            previous_date=previous_date,
+        )
         db.insert_daily_set(
             today,
             result.payload,
@@ -73,6 +90,7 @@ def generate_today() -> dict:
             "status": "generated",
             "payload": result.payload,
             "meta": db.get_daily_meta(today),
+            "debug": result.debug,
         }
     except sqlite3.IntegrityError:
         payload = db.get_daily_set(today)
@@ -81,6 +99,7 @@ def generate_today() -> dict:
                 "status": "existing",
                 "payload": payload,
                 "meta": db.get_daily_meta(today),
+                "debug": {"reason": "created_by_parallel_request"},
             }
         raise HTTPException(status_code=500, detail="Failed to store generated set")
     except openai_client.OpenAIGenerationError as exc:

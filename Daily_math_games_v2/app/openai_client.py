@@ -1,8 +1,10 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Any
 
 import httpx
@@ -66,6 +68,10 @@ SYSTEM_PROMPT = (
     "Return only valid JSON matching the requested schema with no extra text."
 )
 
+NEAR_DUPLICATE_THRESHOLD = 0.9
+RETRY_EXACT_RATIO_THRESHOLD = 0.25
+RETRY_SIMILAR_RATIO_THRESHOLD = 0.5
+
 PROMPT_DAILY_SET = """
 Create a daily math game set as ONE JSON object only.
 No markdown, no explanation, no code fences.
@@ -89,6 +95,40 @@ Rules:
 - Level2 questions must be self-contained and mathematically consistent.
 - Level3 should focus on solving for x or evaluating algebraic expressions.
 - Return ONLY JSON.
+""".strip()
+
+PROMPT_DAILY_SET_DIVERSITY_RETRY = """
+Create a daily math game set as ONE JSON object only.
+No markdown, no explanation, no code fences.
+
+Required schema:
+{{
+  "date": "{date}",
+  "level1": [{{"question": "...", "answer": "..."}}],
+  "level2": [{{"question": "...", "answer": "..."}}],
+  "level3": [{{"question": "...", "answer": "..."}}]
+}}
+
+Rules:
+- level1: 40 short arithmetic questions, all unique.
+- level2: 8 medium difficulty word problems and geometry-style questions.
+- level3: 8 algebra/equation solving problems.
+- Keep answers short and unambiguous.
+- Prefer plain numeric answers when possible.
+- Do not make level2 a copy of level1-style single-step arithmetic.
+- Level2 should include variety: area/perimeter, fractions, percentages, ratios, units, and short real-world scenarios.
+- Level2 questions must be self-contained and mathematically consistent.
+- Level3 should focus on solving for x or evaluating algebraic expressions.
+- Level2 and level3 must be materially different from the previous day.
+- Do NOT reuse or lightly rephrase the previous-day level2 or level3 questions listed below.
+
+Previous-day level2 questions:
+{previous_level2}
+
+Previous-day level3 questions:
+{previous_level3}
+
+Return ONLY JSON.
 """.strip()
 
 FIX_JSON_PROMPT = """
@@ -121,6 +161,11 @@ class GenerationResult:
     payload: dict[str, Any]
     usage: dict[str, int]
     model: str
+    debug: dict[str, Any]
+
+
+def _zero_usage() -> dict[str, int]:
+    return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
 
 def _add_usage(total: dict[str, int], delta: dict[str, int]) -> dict[str, int]:
@@ -177,6 +222,174 @@ def _parse_single_json_object(raw_text: str) -> dict[str, Any]:
         raise OpenAIGenerationError("Model output must be one JSON object.")
 
     return parsed
+
+
+def _normalize_question_text(text: str) -> str:
+    value = re.sub(r"\s+", " ", text.strip().lower())
+    value = re.sub(r"[^a-z0-9%+\-*/=()., ]", "", value)
+    return value.strip()
+
+
+def _tokenize_question(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9%]+", text))
+
+
+def _question_similarity_score(a: str, b: str) -> float:
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+
+    sequence_ratio = SequenceMatcher(None, a, b).ratio()
+    a_tokens = _tokenize_question(a)
+    b_tokens = _tokenize_question(b)
+    if not a_tokens or not b_tokens:
+        return sequence_ratio
+
+    intersection = len(a_tokens & b_tokens)
+    union = len(a_tokens | b_tokens)
+    jaccard_ratio = (intersection / union) if union else 0.0
+    return max(sequence_ratio, jaccard_ratio)
+
+
+def _extract_questions(payload: dict[str, Any], level: str) -> list[str]:
+    raw = payload.get(level)
+    if not isinstance(raw, list):
+        return []
+
+    questions: list[str] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        question = item.get("question")
+        if not isinstance(question, str):
+            continue
+        cleaned = question.strip()
+        if cleaned:
+            questions.append(cleaned)
+    return questions
+
+
+def _similarity_summary_for_level(
+    current_questions: list[str],
+    previous_questions: list[str],
+) -> dict[str, Any]:
+    if not current_questions or not previous_questions:
+        return {
+            "count": len(current_questions),
+            "exact_count": 0,
+            "similar_count": 0,
+            "exact_ratio": 0.0,
+            "similar_ratio": 0.0,
+        }
+
+    previous_normalized = [
+        q for q in (_normalize_question_text(q) for q in previous_questions) if q
+    ]
+    previous_set = set(previous_normalized)
+
+    exact_count = 0
+    similar_count = 0
+
+    for question in current_questions:
+        current_normalized = _normalize_question_text(question)
+        if not current_normalized:
+            continue
+
+        if current_normalized in previous_set:
+            exact_count += 1
+            similar_count += 1
+            continue
+
+        best_score = 0.0
+        for prev_normalized in previous_normalized:
+            score = _question_similarity_score(current_normalized, prev_normalized)
+            if score > best_score:
+                best_score = score
+            if best_score >= NEAR_DUPLICATE_THRESHOLD:
+                break
+
+        if best_score >= NEAR_DUPLICATE_THRESHOLD:
+            similar_count += 1
+
+    count = len(current_questions)
+    return {
+        "count": count,
+        "exact_count": exact_count,
+        "similar_count": similar_count,
+        "exact_ratio": exact_count / count if count else 0.0,
+        "similar_ratio": similar_count / count if count else 0.0,
+    }
+
+
+def _collect_similarity_metrics(
+    current_payload: dict[str, Any],
+    previous_payload: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    return {
+        "level2": _similarity_summary_for_level(
+            _extract_questions(current_payload, "level2"),
+            _extract_questions(previous_payload, "level2"),
+        ),
+        "level3": _similarity_summary_for_level(
+            _extract_questions(current_payload, "level3"),
+            _extract_questions(previous_payload, "level3"),
+        ),
+    }
+
+
+def _should_retry_for_similarity(metrics: dict[str, dict[str, Any]]) -> bool:
+    for level_name in ("level2", "level3"):
+        level = metrics.get(level_name, {})
+        exact_ratio = float(level.get("exact_ratio", 0.0) or 0.0)
+        similar_ratio = float(level.get("similar_ratio", 0.0) or 0.0)
+        if (
+            exact_ratio >= RETRY_EXACT_RATIO_THRESHOLD
+            or similar_ratio >= RETRY_SIMILAR_RATIO_THRESHOLD
+        ):
+            return True
+    return False
+
+
+def _similarity_rank(metrics: dict[str, dict[str, Any]]) -> float:
+    level2 = metrics.get("level2", {})
+    level3 = metrics.get("level3", {})
+    max_exact = max(
+        float(level2.get("exact_ratio", 0.0) or 0.0),
+        float(level3.get("exact_ratio", 0.0) or 0.0),
+    )
+    max_similar = max(
+        float(level2.get("similar_ratio", 0.0) or 0.0),
+        float(level3.get("similar_ratio", 0.0) or 0.0),
+    )
+    return max_similar + (0.5 * max_exact)
+
+
+def _format_previous_questions_for_prompt(questions: list[str], *, limit: int = 16) -> str:
+    if not questions:
+        return "(none)"
+
+    lines: list[str] = []
+    for index, question in enumerate(questions[:limit], start=1):
+        sanitized = re.sub(r"\s+", " ", question).strip()
+        if not sanitized:
+            continue
+        lines.append(f"{index}. {sanitized}")
+    return "\n".join(lines) if lines else "(none)"
+
+
+def _compact_similarity(metrics: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    for level_name in ("level2", "level3"):
+        level = metrics.get(level_name, {})
+        compact[level_name] = {
+            "exact_count": int(level.get("exact_count", 0) or 0),
+            "similar_count": int(level.get("similar_count", 0) or 0),
+            "count": int(level.get("count", 0) or 0),
+            "exact_ratio": round(float(level.get("exact_ratio", 0.0) or 0.0), 3),
+            "similar_ratio": round(float(level.get("similar_ratio", 0.0) or 0.0), 3),
+        }
+    return compact
 
 
 def _request_openai(messages: list[dict[str, str]]) -> tuple[str, dict[str, int], str]:
@@ -253,13 +466,13 @@ def _request_openai(messages: list[dict[str, str]]) -> tuple[str, dict[str, int]
     return content, usage, model_name
 
 
-def generate_daily_payload(today_date: str) -> GenerationResult:
+def _generate_with_prompt(today_date: str, prompt: str) -> GenerationResult:
     messages: list[dict[str, str]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": PROMPT_DAILY_SET.format(date=today_date)},
+        {"role": "user", "content": prompt},
     ]
 
-    usage_total = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    usage_total = _zero_usage()
     last_error = "unknown"
     last_output = ""
     last_model = OPENAI_MODEL
@@ -278,6 +491,7 @@ def generate_daily_payload(today_date: str) -> GenerationResult:
                 payload=validated.model_dump(),
                 usage=usage_total,
                 model=last_model,
+                debug={},
             )
         except (OpenAIGenerationError, ValidationError) as exc:
             last_error = str(exc)
@@ -299,4 +513,75 @@ def generate_daily_payload(today_date: str) -> GenerationResult:
         "Failed to produce valid daily JSON after 3 attempts. "
         f"Last error: {last_error}. "
         f"Last output preview: {last_output[:220]!r}"
+    )
+
+
+def generate_daily_payload(
+    today_date: str,
+    *,
+    previous_payload: dict[str, Any] | None = None,
+    previous_date: str | None = None,
+) -> GenerationResult:
+    first_result = _generate_with_prompt(
+        today_date,
+        PROMPT_DAILY_SET.format(date=today_date),
+    )
+    debug: dict[str, Any] = {
+        "mode": "daily_diversity_v1",
+        "has_previous_day": isinstance(previous_payload, dict),
+        "previous_date": previous_date if isinstance(previous_date, str) else None,
+        "retry_triggered": False,
+        "selected_pass": "first",
+    }
+
+    if not isinstance(previous_payload, dict):
+        first_result.debug = debug
+        return first_result
+
+    first_similarity = _collect_similarity_metrics(first_result.payload, previous_payload)
+    debug["first_similarity"] = _compact_similarity(first_similarity)
+
+    if not _should_retry_for_similarity(first_similarity):
+        first_result.debug = debug
+        return first_result
+    debug["retry_triggered"] = True
+
+    retry_prompt = PROMPT_DAILY_SET_DIVERSITY_RETRY.format(
+        date=today_date,
+        previous_level2=_format_previous_questions_for_prompt(
+            _extract_questions(previous_payload, "level2")
+        ),
+        previous_level3=_format_previous_questions_for_prompt(
+            _extract_questions(previous_payload, "level3")
+        ),
+    )
+
+    try:
+        second_result = _generate_with_prompt(today_date, retry_prompt)
+    except OpenAIGenerationError:
+        debug["retry_result"] = "failed_second_pass"
+        first_result.debug = debug
+        return first_result
+
+    combined_usage = _add_usage(first_result.usage, second_result.usage)
+    second_similarity = _collect_similarity_metrics(second_result.payload, previous_payload)
+    debug["second_similarity"] = _compact_similarity(second_similarity)
+
+    if _similarity_rank(second_similarity) <= _similarity_rank(first_similarity):
+        debug["retry_result"] = "used_second_pass"
+        debug["selected_pass"] = "second"
+        return GenerationResult(
+            payload=second_result.payload,
+            usage=combined_usage,
+            model=second_result.model,
+            debug=debug,
+        )
+
+    debug["retry_result"] = "kept_first_pass"
+    first_result.debug = debug
+    return GenerationResult(
+        payload=first_result.payload,
+        usage=combined_usage,
+        model=first_result.model,
+        debug=debug,
     )

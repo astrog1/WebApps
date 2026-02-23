@@ -121,6 +121,7 @@ Open:
 - `POST /generate`
   - If today exists in SQLite, returns existing payload + metadata.
   - Otherwise generates using OpenAI and stores payload + token usage metadata.
+  - Response now includes `debug` with compact reroll/similarity details for level2/level3 diversity checks.
 - `GET /daily/today`
   - Returns today's payload or 404.
 - `GET /daily/today/meta`

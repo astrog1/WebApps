@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 
@@ -12,6 +13,23 @@ from . import db, openai_client, utils
 
 
 BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_REPEAT_WINDOW_DAYS = 14
+
+
+def _repeat_window_days() -> int:
+    raw_value = os.getenv("DAILY_MATH_REPEAT_WINDOW_DAYS", "").strip()
+    if not raw_value:
+        return DEFAULT_REPEAT_WINDOW_DAYS
+
+    try:
+        parsed = int(raw_value)
+    except ValueError:
+        return DEFAULT_REPEAT_WINDOW_DAYS
+
+    if parsed <= 0:
+        return DEFAULT_REPEAT_WINDOW_DAYS
+
+    return parsed
 
 app = FastAPI(title="Daily Math Game", version="1.0.0")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
@@ -63,22 +81,13 @@ def generate_today() -> dict:
         }
 
     try:
-        previous = db.get_latest_daily_set_before(today)
-        previous_payload = (
-            previous["payload"]
-            if isinstance(previous, dict) and isinstance(previous.get("payload"), dict)
-            else None
-        )
-        previous_date = (
-            previous["date"]
-            if isinstance(previous, dict) and isinstance(previous.get("date"), str)
-            else None
-        )
+        repeat_window_days = _repeat_window_days()
+        recent_sets = db.get_recent_daily_sets_before(today, repeat_window_days)
 
         result = openai_client.generate_daily_payload(
             today,
-            previous_payload=previous_payload,
-            previous_date=previous_date,
+            recent_sets=recent_sets,
+            repeat_window_days=repeat_window_days,
         )
         db.insert_daily_set(
             today,

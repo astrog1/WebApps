@@ -60,6 +60,12 @@ Optional model override (default is `gpt-4.1-mini`):
 $env:OPENAI_MODEL = "gpt-4.1-mini"
 ```
 
+Optional repeat-history window (default is `14` days):
+
+```powershell
+$env:DAILY_MATH_REPEAT_WINDOW_DAYS = "14"
+```
+
 ### 4) Run the app
 
 ```powershell
@@ -103,6 +109,12 @@ Optional model override (default is `gpt-4.1-mini`):
 
 ```bash
 export OPENAI_MODEL="gpt-4.1-mini"
+```
+
+Optional repeat-history window (default is `14` days):
+
+```bash
+export DAILY_MATH_REPEAT_WINDOW_DAYS="14"
 ```
 
 ### 5) Run the app
@@ -206,3 +218,4 @@ Your account is charged according to the model's per-token pricing on the pricin
 - SQLite file defaults to `daily_math_game.db` in project root.
 - Override DB path with environment variable `DAILY_MATH_DB` if needed.
 - Date key uses server local date (`YYYY-MM-DD`).
+- Repeat blocking uses recent generated history. Configure with `DAILY_MATH_REPEAT_WINDOW_DAYS` (default `14`).

@@ -119,14 +119,14 @@ Rules:
 - Level2 should include variety: area/perimeter, fractions, percentages, ratios, units, and short real-world scenarios.
 - Level2 questions must be self-contained and mathematically consistent.
 - Level3 should focus on solving for x or evaluating algebraic expressions.
-- Level2 and level3 must be materially different from the previous day.
-- Do NOT reuse or lightly rephrase the previous-day level2 or level3 questions listed below.
+- Level2 and level3 must be materially different from the recent history window.
+- Do NOT reuse or lightly rephrase the recent-window level2 or level3 questions listed below.
 
-Previous-day level2 questions:
-{previous_level2}
+Recent-window level2 questions:
+{history_level2}
 
-Previous-day level3 questions:
-{previous_level3}
+Recent-window level3 questions:
+{history_level3}
 
 Return ONLY JSON.
 """.strip()
@@ -322,18 +322,35 @@ def _similarity_summary_for_level(
     }
 
 
+def _extract_history_questions(
+    recent_sets: list[dict[str, Any]],
+    level: str,
+) -> list[str]:
+    questions: list[str] = []
+    for item in recent_sets:
+        if not isinstance(item, dict):
+            continue
+        payload = item.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        questions.extend(_extract_questions(payload, level))
+    return questions
+
+
 def _collect_similarity_metrics(
     current_payload: dict[str, Any],
-    previous_payload: dict[str, Any],
+    recent_sets: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
+    history_level2 = _extract_history_questions(recent_sets, "level2")
+    history_level3 = _extract_history_questions(recent_sets, "level3")
     return {
         "level2": _similarity_summary_for_level(
             _extract_questions(current_payload, "level2"),
-            _extract_questions(previous_payload, "level2"),
+            history_level2,
         ),
         "level3": _similarity_summary_for_level(
             _extract_questions(current_payload, "level3"),
-            _extract_questions(previous_payload, "level3"),
+            history_level3,
         ),
     }
 
@@ -341,9 +358,12 @@ def _collect_similarity_metrics(
 def _should_retry_for_similarity(metrics: dict[str, dict[str, Any]]) -> bool:
     for level_name in ("level2", "level3"):
         level = metrics.get(level_name, {})
+        exact_count = int(level.get("exact_count", 0) or 0)
         exact_ratio = float(level.get("exact_ratio", 0.0) or 0.0)
         similar_ratio = float(level.get("similar_ratio", 0.0) or 0.0)
         if (
+            exact_count > 0
+            or
             exact_ratio >= RETRY_EXACT_RATIO_THRESHOLD
             or similar_ratio >= RETRY_SIMILAR_RATIO_THRESHOLD
         ):
@@ -365,7 +385,7 @@ def _similarity_rank(metrics: dict[str, dict[str, Any]]) -> float:
     return max_similar + (0.5 * max_exact)
 
 
-def _format_previous_questions_for_prompt(questions: list[str], *, limit: int = 16) -> str:
+def _format_questions_for_prompt(questions: list[str], *, limit: int = 40) -> str:
     if not questions:
         return "(none)"
 
@@ -519,26 +539,34 @@ def _generate_with_prompt(today_date: str, prompt: str) -> GenerationResult:
 def generate_daily_payload(
     today_date: str,
     *,
-    previous_payload: dict[str, Any] | None = None,
-    previous_date: str | None = None,
+    recent_sets: list[dict[str, Any]] | None = None,
+    repeat_window_days: int | None = None,
 ) -> GenerationResult:
+    recent_sets = recent_sets or []
+    recent_dates = [
+        item["date"]
+        for item in recent_sets
+        if isinstance(item, dict) and isinstance(item.get("date"), str)
+    ]
+
     first_result = _generate_with_prompt(
         today_date,
         PROMPT_DAILY_SET.format(date=today_date),
     )
     debug: dict[str, Any] = {
-        "mode": "daily_diversity_v1",
-        "has_previous_day": isinstance(previous_payload, dict),
-        "previous_date": previous_date if isinstance(previous_date, str) else None,
+        "mode": "daily_diversity_window_v1",
+        "repeat_window_days": repeat_window_days,
+        "history_days_found": len(recent_dates),
+        "history_dates": recent_dates,
         "retry_triggered": False,
         "selected_pass": "first",
     }
 
-    if not isinstance(previous_payload, dict):
+    if not recent_sets:
         first_result.debug = debug
         return first_result
 
-    first_similarity = _collect_similarity_metrics(first_result.payload, previous_payload)
+    first_similarity = _collect_similarity_metrics(first_result.payload, recent_sets)
     debug["first_similarity"] = _compact_similarity(first_similarity)
 
     if not _should_retry_for_similarity(first_similarity):
@@ -548,11 +576,11 @@ def generate_daily_payload(
 
     retry_prompt = PROMPT_DAILY_SET_DIVERSITY_RETRY.format(
         date=today_date,
-        previous_level2=_format_previous_questions_for_prompt(
-            _extract_questions(previous_payload, "level2")
+        history_level2=_format_questions_for_prompt(
+            _extract_history_questions(recent_sets, "level2")
         ),
-        previous_level3=_format_previous_questions_for_prompt(
-            _extract_questions(previous_payload, "level3")
+        history_level3=_format_questions_for_prompt(
+            _extract_history_questions(recent_sets, "level3")
         ),
     )
 
@@ -564,7 +592,7 @@ def generate_daily_payload(
         return first_result
 
     combined_usage = _add_usage(first_result.usage, second_result.usage)
-    second_similarity = _collect_similarity_metrics(second_result.payload, previous_payload)
+    second_similarity = _collect_similarity_metrics(second_result.payload, recent_sets)
     debug["second_similarity"] = _compact_similarity(second_similarity)
 
     if _similarity_rank(second_similarity) <= _similarity_rank(first_similarity):

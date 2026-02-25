@@ -83,6 +83,32 @@ def get_latest_daily_set_before(date_str: str) -> dict[str, Any] | None:
     }
 
 
+def get_recent_daily_sets_before(date_str: str, limit: int) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
+
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT date, payload_json
+            FROM daily_sets
+            WHERE date < ?
+            ORDER BY date DESC
+            LIMIT ?
+            """,
+            (date_str, limit),
+        ).fetchall()
+
+    return [
+        {
+            "date": row["date"],
+            "payload": json.loads(row["payload_json"]),
+        }
+        for row in rows
+    ]
+
+
 def get_daily_meta(date_str: str) -> dict[str, Any] | None:
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row

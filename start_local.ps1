@@ -18,6 +18,7 @@ function Show-Usage {
     Write-Host "  HUB_PORT       (default: 8080)"
     Write-Host "  HOST_BIND      (default: 0.0.0.0)"
     Write-Host "  OPENAI_API_KEY (optional for Daily Math /generate)"
+    Write-Host "  DAILY_MATH_REPEAT_WINDOW_DAYS (default: 14)"
 }
 
 if ([string]::IsNullOrWhiteSpace($Action)) {
@@ -54,6 +55,7 @@ $YAHTZEE_PORT = Get-EnvOrDefault -Name "YAHTZEE_PORT" -DefaultValue "5102"
 $MATH_PORT = Get-EnvOrDefault -Name "MATH_PORT" -DefaultValue "5103"
 $HUB_PORT = Get-EnvOrDefault -Name "HUB_PORT" -DefaultValue "8080"
 $HOST_BIND = Get-EnvOrDefault -Name "HOST_BIND" -DefaultValue "0.0.0.0"
+$DAILY_MATH_REPEAT_WINDOW_DAYS = Get-EnvOrDefault -Name "DAILY_MATH_REPEAT_WINDOW_DAYS" -DefaultValue "14"
 
 function Get-OpenAiApiKey {
     if (-not [string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY)) {
@@ -319,6 +321,7 @@ function Start-All {
     if (-not [string]::IsNullOrWhiteSpace($openAiApiKey)) {
         $dailyMathEnv["OPENAI_API_KEY"] = $openAiApiKey
     }
+    $dailyMathEnv["DAILY_MATH_REPEAT_WINDOW_DAYS"] = $DAILY_MATH_REPEAT_WINDOW_DAYS
 
     Start-One `
         -Name "daily-math" `
